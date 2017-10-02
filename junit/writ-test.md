@@ -962,6 +962,461 @@ void testWithStringParameter(String argument) {
     assertNotNull(argument);
 }
 ```
-此参数化测试使用@ValueSource注释来指定String数组作为参数的来源。 执行此方法时，将分别报告每次调用。 例如，ConsoleLauncher将打印输出类似于以下内容。
+此参数化测试使用@ValueSource注解来指定String数组作为参数的来源。 执行此方法时，将分别报告每次调用。 例如，ConsoleLauncher将打印输出类似于以下内容。
+```console
+testWithStringParameter(String) ✔
+├─ [1] Hello ✔
+└─ [2] World ✔
+```
 
+### 必要的设置
 
+为了使用参数化测试，您需要在junit-jupiter-params artifact上添加依赖关系。
+
+```xml
+ <dependency>
+    <groupId>org.junit.jupiter</groupId>
+    <artifactId>junit-jupiter-params</artifactId>
+    <version>${junit.jupiter.version}</version>
+    <scope>test</scope>
+</dependency>
+```
+
+### 参数源
+
+开箱即用,junit jupiter提供了不少关于source的注解，以下各小节提供了一个简要的概述和每个示例。 有关其他信息，请参阅[org.junit.jupiter.params.provider](http://junit.org/junit5/docs/current/api/org/junit/jupiter/params/provider/package-summary.html)包中的JavaDoc。
+
+#### @ValueSource
+
+@ValueSource是最简单sources之一。 它允许您指定原始类型（String，int，long或double）的文字数组，并且只能用于每次调用提供单个参数。
+
+```java
+@ParameterizedTest
+@ValueSource(ints = { 1, 2, 3 })
+void testWithValueSource(int argument) {
+    assertNotNull(argument);
+}
+```
+
+#### @EnumSource
+
+@EnumSource提供了一种方便使用枚举常量的方法。 注解提供了一个可选的名称参数，可以指定使用哪些常量。 如果省略，将使用所有常量，如下例所示。
+
+```java
+@ParameterizedTest
+@EnumSource(TimeUnit.class)
+void testWithEnumSource(TimeUnit timeUnit) {
+    assertNotNull(timeUnit);
+}
+```
+```java
+@ParameterizedTest
+@EnumSource(value = TimeUnit.class, names = { "DAYS", "HOURS" })
+void testWithEnumSourceInclude(TimeUnit timeUnit) {
+    assertTrue(EnumSet.of(TimeUnit.DAYS, TimeUnit.HOURS).contains(timeUnit));
+}
+```
+
+@EnumSource注解还提供了一个可选的mode参数，可以对传递给测试方法的常量进行更细粒度的控制。 例如，您可以从枚举常量池中排除名称或指定正则表达式，如以下示例所示。
+
+```java
+@ParameterizedTest
+@EnumSource(value = TimeUnit.class, mode = EXCLUDE, names = { "DAYS", "HOURS" })
+void testWithEnumSourceExclude(TimeUnit timeUnit) {
+    assertFalse(EnumSet.of(TimeUnit.DAYS, TimeUnit.HOURS).contains(timeUnit));
+    assertTrue(timeUnit.name().length() > 5);
+}
+```
+
+```java
+@ParameterizedTest
+@EnumSource(value = TimeUnit.class, mode = MATCH_ALL, names = "^(M|N).+SECONDS$")
+void testWithEnumSourceRegex(TimeUnit timeUnit) {
+    String name = timeUnit.name();
+    assertTrue(name.startsWith("M") || name.startsWith("N"));
+    assertTrue(name.endsWith("SECONDS"));
+}
+```
+
+#### @MethodSource
+
+@MethodSource允许您引用测试类的一个或多个方法。 每个方法都必须返回一个Stream，Iterable，Iterator或参数数组。 另外，每个方法都不能接受任何参数。 默认情况下，除非使用@TestInstance（Lifecycle.PER_CLASS）注解测试类，否则这些方法必须是静态的。
+
+如果只需要一个参数，则可以直接返回参数类型的实例，如以下示例所示。
+
+```java
+@ParameterizedTest
+@MethodSource("stringProvider")
+void testWithSimpleMethodSource(String argument) {
+    assertNotNull(argument);
+}
+
+static Stream<String> stringProvider() {
+    return Stream.of("foo", "bar");
+}
+```
+还支持原始类型（DoubleStream，IntStream和LongStream）的流。
+
+```java
+@ParameterizedTest
+@MethodSource("range")
+void testWithRangeMethodSource(int argument) {
+    assertNotEquals(9, argument);
+}
+
+static IntStream range() {
+    return IntStream.range(0, 20).skip(10);
+}
+```
+
+如果需要多个参数，则需要返回一个Arguments实例，如下所示。 请注意，Arguments.of（Object ...）是在接口本身中定义的静态工厂方法。
+
+```java
+@ParameterizedTest
+@MethodSource("stringAndIntProvider")
+void testWithMultiArgMethodSource(String first, int second) {
+    assertNotNull(first);
+    assertNotEquals(0, second);
+}
+
+static Stream<Arguments> stringAndIntProvider() {
+    return Stream.of(Arguments.of("foo", 1), Arguments.of("bar", 2));
+}
+```
+
+#### @CsvSource
+
+@CsvSource允许您将参数列表表示为逗号分隔的形式（即CSV格式）。
+
+```java
+@ParameterizedTest
+@CsvSource({ "foo, 1", "bar, 2", "'baz, qux', 3" })
+void testWithCsvSource(String first, int second) {
+    assertNotNull(first);
+    assertNotEquals(0, second);
+}
+```
+
+@CsvSource使用单引号作为其引号。 请参见上面的示例和下表中的'baz，qux'值。 一个空的引用值''会被当做一个空字符串; 而一个完全空的值被解释为null引用。 如果null引用的目标类型是原始类型，则会抛出ArgumentConversionException。
+| 输入例子 | 返回的参数列表 |
+|--------|--------|
+|    @CsvSource({ "foo, bar" })    |     "foo", "bar"   |
+|	@CsvSource({ "foo, 'baz, qux'" })	|	"foo", "baz, qux"	|
+|	@CsvSource({ "foo, ''" })	|	"foo", ""	|
+|	@CsvSource({ "foo, " })	|	"foo", null	|
+
+#### @CsvFileSource
+
+@CsvFileSource可以让您从classpath中使用CSV文件。 来自CSV文件的每一行都会执行一次调用参数化测试。
+
+```java
+@ParameterizedTest
+@CsvFileSource(resources = "/two-column.csv")
+void testWithCsvFileSource(String first, int second) {
+    assertNotNull(first);
+    assertNotEquals(0, second);
+}
+```
+
+two-column.csv
+
+```csv
+foo, 1
+bar, 2
+"baz, qux", 3
+```
+
+> 与@CvSource中使用的语法相反，@CsvFileSource使用双引号“作为引用字符，请参见上述示例中的”baz，qux“值，空引用的值”“会被解释为一个空字符串; 一个完全空的值被解释为null引用。如果null引用的目标类型是原始类型，则会抛出ArgumentConversionException。
+
+#### @ArgumentsSource
+
+@ArgumentsSource可用于指定自定义的可重用的ArgumentsProvider。
+
+```java
+@ParameterizedTest
+@ArgumentsSource(MyArgumentsProvider.class)
+void testWithArgumentsSource(String argument) {
+    assertNotNull(argument);
+}
+
+static class MyArgumentsProvider implements ArgumentsProvider {
+
+    @Override
+    public Stream<? extends Arguments> provideArguments(ExtensionContext context) {
+        return Stream.of("foo", "bar").map(Arguments::of);
+    }
+}
+```
+
+### 参数转换
+
+#### 隐式转换
+
+为了支持@CvSource这样的用例，JUnit Jupiter提供了许多内置的隐式类型转换器。 转换过程取决于每个方法的参数声明的类型。
+
+例如，如果@ParameterizedTest声明一个类型为TimeUnit的参数，并且由声明的源提供的实际类型为String，则该字符串将自动转换为相应的TimeUnit枚举常量。
+
+```java
+@ParameterizedTest
+@ValueSource(strings = "SECONDS")
+void testWithImplicitArgumentConversion(TimeUnit argument) {
+    assertNotNull(argument.name());
+}
+```
+
+字符串实例当前被隐式转换为以下目标类型.
+
+| 目标类型 | 例子 |
+|--------|--------|
+|    boolean/Boolean    |    "true" → true    |
+|	byte/Byte	|	"1" → (byte) 1	|
+|	char/Character	|	"o" → 'o'	|
+|	short/Short	|	"1" → (short) 1	|
+|	int/Integer	|		"1" → 1	|
+|	long/Long	|	"1" → 1L	|
+|	float/Float	|	"1.0" → 1.0f	|
+|	double/Double	|	"1.0" → 1.0d	|
+|	Enum subclass	|	"SECONDS" → TimeUnit.SECONDS	|
+|	java.time.Instant	|	"1970-01-01T00:00:00Z" → Instant.ofEpochMilli(0)	|
+|	java.time.LocalDate	|	"2017-03-14" → LocalDate.of(2017, 3, 14)	|
+|	java.time.LocalDateTime	|	"2017-03-14T12:34:56.789" → LocalDateTime.of(2017, 3, 14, 12, 34, 56, 789_000_000)	|
+|	java.time.LocalTime	|	"12:34:56.789" → LocalTime.of(12, 34, 56, 789_000_000)	|
+|	java.time.OffsetDateTime	|	"2017-03-14T12:34:56.789Z" → OffsetDateTime.of(2017, 3, 14, 12, 34, 56, 789_000_000, ZoneOffset.UTC)	|
+|	java.time.OffsetTime	|	"12:34:56.789Z" → OffsetTime.of(12, 34, 56, 789_000_000, ZoneOffset.UTC)	|
+|	java.time.Year	|	"2017" → Year.of(2017)	|
+|	java.time.YearMonth	|	"2017-03" → YearMonth.of(2017, 3)	|
+|	java.time.ZonedDateTime	|	"2017-03-14T12:34:56.789Z" → ZonedDateTime.of(2017, 3, 14, 12, 34, 56, 789_000_000, ZoneOffset.UTC)	|
+
+#### 显示转换
+
+您可以使用@ConvertWith注解来显式指定一个ArgumentConverter用于某个参数，而不是使用隐式参数转换.如下例所示。
+
+```java
+@ParameterizedTest
+@EnumSource(TimeUnit.class)
+void testWithExplicitArgumentConversion(@ConvertWith(ToStringArgumentConverter.class) String argument) {
+    assertNotNull(TimeUnit.valueOf(argument));
+}
+
+static class ToStringArgumentConverter extends SimpleArgumentConverter {
+
+    @Override
+    protected Object convert(Object source, Class<?> targetType) {
+        assertEquals(String.class, targetType, "Can only convert to String");
+        return String.valueOf(source);
+    }
+}
+```
+
+明确的参数转换器是由Tester来实现的。 因此，junit-jupiter-params只提供一个单独的显式参数转换器，也可以作为参考实现：JavaTimeArgumentConverter。 它通过组合注解JavaTimeConversionPattern使用。
+
+```java
+@ParameterizedTest
+@ValueSource(strings = { "01.01.2017", "31.12.2017" })
+void testWithExplicitJavaTimeConverter(@JavaTimeConversionPattern("dd.MM.yyyy") LocalDate argument) {
+    assertEquals(2017, argument.getYear());
+}
+```
+
+### 自定义显示名称
+
+默认情况下，参数化测试调用的显示名称包含该特定调用的所有参数的调用索引和String表示形式。 但是，您可以通过@ParameterizedTest注解的name属性来定制显示名称，如下例所示。
+
+```java
+@DisplayName("Display name of container")
+@ParameterizedTest(name = "{index} ==> first=''{0}'', second={1}")
+@CsvSource({ "foo, 1", "bar, 2", "'baz, qux', 3" })
+void testWithCustomDisplayNames(String first, int second) {
+}
+```
+
+当使用ConsoleLauncher执行上述方法时，您将看到类似于以下内容的输出。
+
+```console
+Display name of container ✔
+├─ 1 ==> first='foo', second=1 ✔
+├─ 2 ==> first='bar', second=2 ✔
+└─ 3 ==> first='baz, qux', second=3 ✔
+```
+
+自定义显示名称中支持以下占位符。
+
+| 占位符 | 描述 |
+|--------|--------|
+|    {index}    |    当前的调用索引（1）    |
+|	{arguments}	|	完整的逗号分隔的参数列表	|
+|	{0}, {1}, …	|	指定的某个参数	|
+
+### 生命周期和互操作性
+
+参数化测试的每次调用与常规的@Test方法具有相同的生命周期。 例如，@BeforeEach方法将在每次调用之前执行。 类似于动态测试，调用将在IDE的测试树中逐个显示。 您可以在同一测试类中混合常规的@Test方法和@ParameterizedTest方法。
+
+您可以使用@ParameterizedTest方法的ParameterResolver扩展。 但是，由参数源解析的方法参数需要先在参数列表中。 由于测试类可能包含常规测试以及具有不同参数列表的参数化测试，因此生命周期方法（例如@BeforeEach）和测试类构造函数的参数源中的值不能解析。
+
+```java
+@BeforeEach
+void beforeEach(TestInfo testInfo) {
+    // ...
+}
+
+@ParameterizedTest
+@ValueSource(strings = "foo")
+void testWithRegularParameterResolver(String argument, TestReporter testReporter) {
+    testReporter.publishEntry("argument", argument);
+}
+
+@AfterEach
+void afterEach(TestInfo testInfo) {
+    // ...
+}
+```
+
+## 测试模板
+
+[@TestTemplate](http://junit.org/junit5/docs/current/api/org/junit/jupiter/api/TestTemplate.html)方法不是常规测试用例，而是测试用例的模板。 因此，它被设计为可以被多次调用，这取决于registered providers返回的调用上下文的数量。 因此，它必须与注册的[TestTemplateInvocationContextProvider](http://junit.org/junit5/docs/current/api/org/junit/jupiter/api/extension/TestTemplateInvocationContextProvider.html)扩展结合使用。 每个调用测试模板方法的行为就像一个常规的@Test方法的执行，并且完全支持相同的生命周期回调和扩展。
+
+## 动态测试
+
+JUnit Jupitr中描述的标准注解@Test跟junit 4中的@Test非常相似，都描述了实现测试用例的方法.这些测试用例是在编译时指定的,这也意味着它是静态的。并且它们无法在运行时发生任何改变，假设你想要提供一种动态的方式,但是由于之前所述的原因而受到了限制.
+
+因此除了标准的@Test测试之外，JUnit Jupiter还引入了一种全新的测试编程模型。 这种新型的测试是一种动态测试，它是在运行时通过使用@ TestFactory.e注解的工厂方法生成的。
+
+与@Test方法相反，@TestFactory方法本身不是测试用例，而是测试用例的工厂。因此，动态测试是工厂的产物。从技术上讲，@TestFactory方法必须返回一个StreamNode，Stream，Collection，Iterable或者是DynamicNode实例的迭代器。 DynamicNode的实例子类是DynamicContainer和DynamicTest。 DynamicContainer实例由显示名称和动态子节点列表组成，可以创建动态节点的任意嵌套层次结构。然后，DynamicTest实例将被延迟执行，从而实现动态甚至非确定性的测试用例生成。
+
+通过调用stream.close（）可以正确地关闭@TestFactory返回的任何Stream，使其可以安全地使用诸如Files.lines（）的资源。
+
+与@Test方法一样，@TestFactory方法不能是private的或static的，并且可以选择声明由ParameterResolvers解析的参数。
+
+DynamicTest是在运行时生成的测试用例。它由显示名称和可执行文件组成。 Executable是一个@FunctionalInterface，这意味着动态测试的实现可以作为lambda表达式或方法引用来提供。
+
+> Dynamic Test Lifecycle
+> 动态测试的执行生命周期与标准的@Test情况完全不同。 具体来说，对于单个动态测试，没有生命周期回调。 这意味着@BeforeEach和@AfterEach方法及其对应的扩展回调对于@TestFactory方法执行，但不是针对每个动态测试执行的。 换句话说，如果从动态测试的lambda表达式中的测试实例访问字段，这些字段将不会被由同一@TestFactory方法生成的各个动态测试之间的回调方法或扩展名执行重置(注:意思是所有由同一个@TestFactory方法生成的各个动态测试之间共享字段？)。
+
+从JUnit Jupiter 5.0.0起，动态测试必须始终由工厂方法创建; 但是，这可能会在以后的版本中被registration facility所补充。
+
+> 动态测试目前是一个实验功能。
+
+### 动态测试例子
+以下DynamicTestsDemo类演示了测试工厂和动态测试的几个示例。
+
+第一种方法返回无效的返回类型。由于在编译时无法检测到无效的返回类型，因此只能在运行时检测到JUnitException。
+
+接下来的五个方法是非常简单的示例，演示了生成一个Collection，Iterable，Iterator或DynamicTest实例流。这些例子中的大多数并不真正表现出动态行为，而只是原则上证明了支持的返回类型。但是，dynamicTestsFromStream（）和dynamicTestsFromIntStream（）表明为给定的一组字符串或输入数字范围生成动态测试是多么容易。
+
+下一个方法本质上是真正的动态的。 generateRandomNumberOfTests（）实现一个生成随机数的迭代器，显示名称生成器和测试执行程序，然后将所有三个提供给DynamicTest.stream（）。虽然generateRandomNumberOfTests（）的非确定性行为当然与单元测试的可重复性相冲突，因此应该小心使用，它用于展示动态测试的表现力和力量。
+
+最后一个方法使用DynamicContainer生成动态测试的嵌套层次结构。
+
+```java
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.DynamicContainer.dynamicContainer;
+import static org.junit.jupiter.api.DynamicTest.dynamicTest;
+
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Random;
+import java.util.function.Function;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
+
+import org.junit.jupiter.api.DynamicNode;
+import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.TestFactory;
+import org.junit.jupiter.api.function.ThrowingConsumer;
+
+class DynamicTestsDemo {
+
+    // This will result in a JUnitException!
+    @TestFactory
+    List<String> dynamicTestsWithInvalidReturnType() {
+        return Arrays.asList("Hello");
+    }
+
+    @TestFactory
+    Collection<DynamicTest> dynamicTestsFromCollection() {
+        return Arrays.asList(
+            dynamicTest("1st dynamic test", () -> assertTrue(true)),
+            dynamicTest("2nd dynamic test", () -> assertEquals(4, 2 * 2))
+        );
+    }
+
+    @TestFactory
+    Iterable<DynamicTest> dynamicTestsFromIterable() {
+        return Arrays.asList(
+            dynamicTest("3rd dynamic test", () -> assertTrue(true)),
+            dynamicTest("4th dynamic test", () -> assertEquals(4, 2 * 2))
+        );
+    }
+
+    @TestFactory
+    Iterator<DynamicTest> dynamicTestsFromIterator() {
+        return Arrays.asList(
+            dynamicTest("5th dynamic test", () -> assertTrue(true)),
+            dynamicTest("6th dynamic test", () -> assertEquals(4, 2 * 2))
+        ).iterator();
+    }
+
+    @TestFactory
+    Stream<DynamicTest> dynamicTestsFromStream() {
+        return Stream.of("A", "B", "C")
+            .map(str -> dynamicTest("test" + str, () -> { /* ... */ }));
+    }
+
+    @TestFactory
+    Stream<DynamicTest> dynamicTestsFromIntStream() {
+        // Generates tests for the first 10 even integers.
+        return IntStream.iterate(0, n -> n + 2).limit(10)
+            .mapToObj(n -> dynamicTest("test" + n, () -> assertTrue(n % 2 == 0)));
+    }
+
+    @TestFactory
+    Stream<DynamicTest> generateRandomNumberOfTests() {
+
+        // Generates random positive integers between 0 and 100 until
+        // a number evenly divisible by 7 is encountered.
+        Iterator<Integer> inputGenerator = new Iterator<Integer>() {
+
+            Random random = new Random();
+            int current;
+
+            @Override
+            public boolean hasNext() {
+                current = random.nextInt(100);
+                return current % 7 != 0;
+            }
+
+            @Override
+            public Integer next() {
+                return current;
+            }
+        };
+
+        // Generates display names like: input:5, input:37, input:85, etc.
+        Function<Integer, String> displayNameGenerator = (input) -> "input:" + input;
+
+        // Executes tests based on the current input value.
+        ThrowingConsumer<Integer> testExecutor = (input) -> assertTrue(input % 7 != 0);
+
+        // Returns a stream of dynamic tests.
+        return DynamicTest.stream(inputGenerator, displayNameGenerator, testExecutor);
+    }
+
+    @TestFactory
+    Stream<DynamicNode> dynamicTestsWithContainers() {
+        return Stream.of("A", "B", "C")
+            .map(input -> dynamicContainer("Container " + input, Stream.of(
+                dynamicTest("not null", () -> assertNotNull(input)),
+                dynamicContainer("properties", Stream.of(
+                    dynamicTest("length > 0", () -> assertTrue(input.length() > 0)),
+                    dynamicTest("not empty", () -> assertFalse(input.isEmpty()))
+                ))
+            )));
+    }
+}
+```
