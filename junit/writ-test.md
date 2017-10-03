@@ -291,7 +291,7 @@ class HamcrestAssertionDemo {
 
 > 当然，基于JUnit 4编程模型的遗留测试可以继续使用org.junit.Assert＃assertThat。
 
-## Assumptions(假设)
+## Assumptions(前置条件)
 
 JUnit Jupiter带有JUnit 4提供的一些Assumpe方法的子集，并添加了一些适用于Java 8 lambdas的api。 所有JUnit Jupiter assume都是org.junit.jupiter.Assumptions类中的静态方法。
 
